@@ -343,7 +343,6 @@
       deepseekKey: '',
       deepseekModel: 'deepseek-v4-pro',
       systemPrompt: DEFAULT_SYSTEM,
-      systemPrompt: DEFAULT_SYSTEM,
       conversations: {},
       currentConvId: null,
       isGenerating: false,
@@ -479,7 +478,7 @@
       const div = document.createElement('div');
       div.className = 'empty-state';
       div.id = 'emptyState';
-      div.innerHTML = '<div class="icon">🤖</div><h3>开始对话</h3><p>在下方输入你的问题，与 Claude 交流</p>';
+      div.innerHTML = '<div class="icon">🤖</div><h3>开始对话</h3><p>选择 AI 提供商，输入 API Key，开始对话</p>';
       return div;
     }
 
