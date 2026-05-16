@@ -1,13 +1,26 @@
-const CACHE = 'claude-pwa-v1';
-const ASSETS = ['/', '/index.html', '/manifest.json'];
+const CACHE = 'claude-pwa-v2';
+const ROOT = self.location.pathname.replace(/\/[^/]*$/, '') || '';
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
+  const base = ROOT || '.';
+  const assets = [`${base}/`, `${base}/index.html`, `${base}/manifest.json`];
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(assets)).catch(() => {}));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))
+    ))
+  );
+  self.clients.claim();
 });
 
 self.addEventListener('fetch', (e) => {
   // Don't cache API calls
-  if (e.request.url.includes('api.anthropic.com')) return;
+  const url = e.request.url;
+  if (url.includes('api.anthropic.com') || url.includes('api.deepseek.com')) return;
 
   e.respondWith(
     caches.match(e.request).then((cached) => {
@@ -18,9 +31,6 @@ self.addEventListener('fetch', (e) => {
         }
         return res;
       });
-    }).catch(() => {
-      // Offline fallback - return cached version if available
-      return caches.match('/index.html');
-    })
+    }).catch(() => caches.match(`${ROOT}/index.html`))
   );
 });
