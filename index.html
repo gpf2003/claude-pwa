@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f0f0f">
+  <title>Claude Chat</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2: #262626;
+      --border: #333;
+      --text: #e5e5e5;
+      --text2: #a3a3a3;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --user-bubble: #2563eb;
+      --danger: #ef4444;
+      --radius: 14px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; height: 100dvh;
+    }
+    /* Header */
+    .header {
+      display: flex; align-items: center; padding: 12px 16px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      gap: 12px; flex-shrink: 0; padding-top: max(12px, env(safe-area-inset-top));
+    }
+    .header h1 { font-size: 17px; font-weight: 600; flex: 1; }
+    .header button {
+      width: 36px; height: 36px; border: none; background: none;
+      color: var(--text); font-size: 20px; cursor: pointer;
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    }
+    .header button:active { background: var(--surface2); }
+    /* Messages */
+    .messages {
+      flex: 1; overflow-y: auto; padding: 16px;
+      -webkit-overflow-scrolling: touch; scroll-behavior: smooth;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg {
+      display: flex; flex-direction: column; max-width: 85%;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .msg.user { align-self: flex-end; }
+    .msg.assistant { align-self: flex-start; }
+    .bubble {
+      padding: 10px 14px; border-radius: 18px; line-height: 1.55; font-size: 15px;
+      word-break: break-word; position: relative;
+    }
+    .msg.user .bubble { background: var(--user-bubble); color: #fff; border-bottom-right-radius: 6px; }
+    .msg.assistant .bubble { background: var(--surface2); color: var(--text); border-bottom-left-radius: 6px; }
+    .bubble pre {
+      background: #0000004d; border-radius: 8px; padding: 10px 12px;
+      overflow-x: auto; margin: 8px 0; font-size: 13px; line-height: 1.5;
+    }
+    .bubble code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.9em; }
+    .bubble pre code { background: none; padding: 0; font-size: 13px; }
+    .bubble :not(pre) > code { background: #ffffff1a; padding: 2px 5px; border-radius: 4px; }
+    .bubble p { margin: 4px 0; }
+    .bubble p:first-child { margin-top: 0; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble ul, .bubble ol { padding-left: 20px; margin: 4px 0; }
+    .bubble blockquote {
+      border-left: 3px solid var(--accent); padding-left: 12px;
+      color: var(--text2); margin: 8px 0;
+    }
+    .msg-actions {
+      display: flex; gap: 8px; margin-top: 4px; opacity: 0; transition: opacity 0.15s;
+    }
+    .msg:hover .msg-actions, .msg-actions.show { opacity: 1; }
+    .msg-actions button {
+      background: var(--surface2); border: none; color: var(--text2);
+      padding: 4px 8px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    }
+    .msg-actions button:active { background: var(--border); }
+    .msg-time { font-size: 11px; color: var(--text2); margin-top: 2px; padding: 0 4px; }
+    /* Input */
+    .input-area {
+      display: flex; gap: 8px; padding: 10px 16px;
+      padding-bottom: calc(10px + var(--safe-bottom));
+      background: var(--surface); border-top: 1px solid var(--border);
+      align-items: flex-end; flex-shrink: 0;
+    }
+    .input-area textarea {
+      flex: 1; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 20px; padding: 10px 16px;
+      font-size: 15px; resize: none; max-height: 140px; line-height: 1.4;
+      outline: none; font-family: inherit;
+    }
+    .input-area textarea:focus { border-color: var(--accent); }
+    .send-btn {
+      width: 40px; height: 40px; border-radius: 50%; border: none;
+      background: var(--accent); color: #fff; font-size: 18px;
+      cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    }
+    .send-btn:active { background: var(--accent-hover); }
+    .send-btn:disabled { opacity: 0.4; cursor: default; }
+    .send-btn.stop { background: var(--danger); }
+    /* Sidebar */
+    .overlay { position: fixed; inset: 0; background: #00000080; z-index: 90; display: none; }
+    .overlay.open { display: block; }
+    .sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 280px;
+      background: var(--surface); z-index: 100;
+      transform: translateX(-100%); transition: transform 0.25s ease;
+      display: flex; flex-direction: column;
+    }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-header {
+      padding: 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding-top: max(16px, env(safe-area-inset-top));
+    }
+    .sidebar-header h3 { font-size: 16px; }
+    .new-chat-btn {
+      width: 100%; padding: 12px 16px; background: none; border: none;
+      border-bottom: 1px solid var(--border); color: var(--accent);
+      font-size: 14px; cursor: pointer; text-align: left; font-weight: 500;
+    }
+    .new-chat-btn:active { background: var(--surface2); }
+    .conv-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .conv-item {
+      padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #ffffff08;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .conv-item:active { background: var(--surface2); }
+    .conv-item.active { background: var(--surface2); border-left: 3px solid var(--accent); }
+    .conv-title { font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conv-delete {
+      background: none; border: none; color: var(--text2); font-size: 16px;
+      cursor: pointer; padding: 4px; opacity: 0; transition: opacity 0.15s;
+    }
+    .conv-item:hover .conv-delete { opacity: 1; }
+    .conv-delete:active { color: var(--danger); }
+    /* Settings Modal */
+    .modal {
+      position: fixed; inset: 0; z-index: 110; display: none;
+      align-items: center; justify-content: center; background: #000000b3;
+    }
+    .modal.open { display: flex; }
+    .modal-content {
+      background: var(--surface); border-radius: 16px; padding: 24px;
+      width: 90%; max-width: 420px; max-height: 80vh; overflow-y: auto;
+    }
+    .modal-content h2 { font-size: 18px; margin-bottom: 16px; }
+    .form-group { margin-bottom: 14px; }
+    .form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 4px; }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); padding: 10px 12px; border-radius: 10px;
+      font-size: 14px; outline: none; font-family: inherit;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+    .btn {
+      padding: 10px 20px; border-radius: 10px; border: none;
+      font-size: 14px; cursor: pointer; font-weight: 500;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:active { background: var(--accent-hover); }
+    .btn-ghost { background: var(--surface2); color: var(--text); }
+    .btn-ghost:active { background: var(--border); }
+    /* Empty state */
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; color: var(--text2); text-align: center; padding: 24px;
+    }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 18px; margin-bottom: 6px; color: var(--text); }
+    .empty-state p { font-size: 14px; line-height: 1.5; max-width: 280px; }
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+      background: #333; color: #fff; padding: 10px 20px; border-radius: 20px;
+      font-size: 13px; z-index: 200; pointer-events: none;
+      opacity: 0; transition: opacity 0.2s;
+    }
+    .toast.show { opacity: 1; }
+    /* Typing indicator */
+    .typing { display: flex; gap: 4px; padding: 8px 0; }
+    .typing span {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--text2);
+      animation: bounce 1.4s infinite ease-in-out both;
+    }
+    .typing span:nth-child(1) { animation-delay: -0.32s; }
+    .typing span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+    .provider-tabs { display: flex; gap: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .provider-tab {
+      flex: 1; padding: 10px 16px; border: none; background: var(--surface2);
+      color: var(--text2); font-size: 14px; cursor: pointer; font-weight: 500;
+    }
+    .provider-tab.active { background: var(--accent); color: #fff; }
+    .provider-tab:not(.active):active { background: var(--border); }
+    .provider-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 600; margin-left: 6px;
+      background: var(--accent); color: #fff; vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <div class="overlay" id="overlay"></div>
+
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h3>对话记录</h3>
+      <button onclick="closeSidebar()" style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <button class="new-chat-btn" onclick="startNewChat();closeSidebar()">+ 新建对话</button>
+    <div class="conv-list" id="convList"></div>
+  </div>
+
+  <!-- Header -->
+  <div class="header">
+    <button onclick="openSidebar()">☰</button>
+    <h1 id="convTitle">Claude Chat <span class="provider-badge" id="providerBadge" style="display:none"></span></h1>
+    <button onclick="openSettings()">⚙</button>
+  </div>
+
+  <!-- Messages -->
+  <div class="messages" id="messages">
+    <div class="empty-state" id="emptyState">
+      <div class="icon">🤖</div>
+      <h3>开始对话</h3>
+      <p>选择 AI 提供商，输入 API Key，开始对话</p>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-area">
+    <textarea id="input" rows="1" placeholder="输入消息..." onkeydown="handleKeyDown(event)"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="handleSendOrStop()" title="发送">↑</button>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-content">
+      <h2>设置</h2>
+      <div class="form-group">
+        <label>接口提供商</label>
+        <div class="provider-tabs">
+          <button class="provider-tab active" data-provider="anthropic" onclick="switchProviderTab('anthropic')">Anthropic</button>
+          <button class="provider-tab" data-provider="deepseek" onclick="switchProviderTab('deepseek')">DeepSeek</button>
+        </div>
+      </div>
+      <div id="anthropicFields">
+        <div class="form-group">
+          <label>Anthropic API Key</label>
+          <input type="password" id="apiKeyInput" placeholder="sk-ant-...">
+        </div>
+        <div class="form-group">
+          <label>模型</label>
+          <select id="anthropicModelSelect">
+            <option value="claude-sonnet-4-6">Claude Sonnet 4.6</option>
+            <option value="claude-opus-4-7">Claude Opus 4.7</option>
+            <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+            <option value="claude-sonnet-4-5-20251001">Claude Sonnet 4.5</option>
+          </select>
+        </div>
+      </div>
+      <div id="deepseekFields" style="display:none">
+        <div class="form-group">
+          <label>DeepSeek API Key</label>
+          <input type="password" id="deepseekKeyInput" placeholder="sk-...">
+        </div>
+        <div class="form-group">
+          <label>模型</label>
+          <select id="deepseekModelSelect">
+            <option value="deepseek-v4-pro">DeepSeek V4 Pro (1.6T)</option>
+            <option value="deepseek-v4-flash">DeepSeek V4 Flash (284B)</option>
+            <option value="deepseek-chat">DeepSeek Chat (V3, 即将下线)</option>
+            <option value="deepseek-reasoner">DeepSeek Reasoner (R1, 即将下线)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>System Prompt（可选）</label>
+        <textarea id="systemPromptInput" placeholder="自定义系统提示词..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeSettings()">取消</button>
+        <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ============ Configuration ============
+    const ANTHROPIC_MODELS = [
+      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6' },
+      { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
+      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' },
+      { id: 'claude-sonnet-4-5-20251001', name: 'Claude Sonnet 4.5' },
+    ];
+    const DEEPSEEK_MODELS = [
+      { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro (1.6T)' },
+      { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash (284B)' },
+      { id: 'deepseek-chat', name: 'DeepSeek Chat (V3, 即将下线)' },
+      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner (R1, 即将下线)' },
+    ];
+
+    const DEFAULT_SYSTEM = '你是一个有帮助的AI助手。用中文回答用户的问题（除非用户使用其他语言提问）。回答简洁清晰，适当使用 Markdown 格式。';
+
+    // ============ State ============
+    let state = {
+      provider: 'anthropic',
+      apiKey: '',
+      model: 'claude-sonnet-4-6',
+      deepseekKey: '',
+      deepseekModel: 'deepseek-v4-pro',
+      systemPrompt: DEFAULT_SYSTEM,
+      systemPrompt: DEFAULT_SYSTEM,
+      conversations: {},
+      currentConvId: null,
+      isGenerating: false,
+      abortController: null,
+    };
+
+    // ============ Storage ============
+    function loadState() {
+      try {
+        state.provider = localStorage.getItem('cpwa_provider') || 'anthropic';
+        state.apiKey = localStorage.getItem('cpwa_apikey') || '';
+        state.model = localStorage.getItem('cpwa_model') || 'claude-sonnet-4-6';
+        state.deepseekKey = localStorage.getItem('cpwa_ds_key') || '';
+        state.deepseekModel = localStorage.getItem('cpwa_ds_model') || 'deepseek-v4-pro';
+        state.systemPrompt = localStorage.getItem('cpwa_sysprompt') || DEFAULT_SYSTEM;
+        const convs = localStorage.getItem('cpwa_conversations');
+        if (convs) state.conversations = JSON.parse(convs);
+        state.currentConvId = localStorage.getItem('cpwa_current') || null;
+        if (state.currentConvId && !state.conversations[state.currentConvId]) {
+          state.currentConvId = null;
+        }
+      } catch (e) { /* ignore corrupt data */ }
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('cpwa_provider', state.provider);
+        if (state.apiKey) localStorage.setItem('cpwa_apikey', state.apiKey);
+        localStorage.setItem('cpwa_model', state.model);
+        if (state.deepseekKey) localStorage.setItem('cpwa_ds_key', state.deepseekKey);
+        localStorage.setItem('cpwa_ds_model', state.deepseekModel);
+        localStorage.setItem('cpwa_sysprompt', state.systemPrompt);
+        localStorage.setItem('cpwa_conversations', JSON.stringify(state.conversations));
+        if (state.currentConvId) localStorage.setItem('cpwa_current', state.currentConvId);
+        else localStorage.removeItem('cpwa_current');
+      } catch (e) { showToast('存储空间不足，请清理旧对话'); }
+    }
+
+    // ============ Helpers ============
+    function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+    function formatTime(ts) {
+      const d = new Date(ts);
+      const now = new Date();
+      const isToday = d.toDateString() === now.toDateString();
+      const time = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      if (isToday) return time;
+      return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) + ' ' + time;
+    }
+
+    function autoTitle(messages) {
+      const first = messages.find(m => m.role === 'user');
+      if (!first) return '新对话';
+      const text = typeof first.content === 'string' ? first.content : first.content?.map(c => c.text || '').join(' ') || '';
+      return text.slice(0, 30) + (text.length > 30 ? '...' : '');
+    }
+
+    function showToast(msg, duration = 2000) {
+      const el = document.getElementById('toast');
+      el.textContent = msg; el.classList.add('show');
+      clearTimeout(el._timeout);
+      el._timeout = setTimeout(() => el.classList.remove('show'), duration);
+    }
+
+    // ============ UI ============
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    function renderConversations() {
+      const list = document.getElementById('convList');
+      const convs = Object.values(state.conversations).sort((a, b) => b.updatedAt - a.updatedAt);
+      list.innerHTML = convs.map(c => `
+        <div class="conv-item ${c.id === state.currentConvId ? 'active' : ''}" onclick="switchConversation('${c.id}')">
+          <span class="conv-title" title="${escapeHTML(c.title)}">${escapeHTML(c.title)}</span>
+          <button class="conv-delete" onclick="event.stopPropagation();deleteConversation('${c.id}')">🗑</button>
+        </div>
+      `).join('');
+    }
+
+    function renderMessages() {
+      const container = document.getElementById('messages');
+      const emptyState = document.getElementById('emptyState');
+      const conv = state.currentConvId ? state.conversations[state.currentConvId] : null;
+
+      if (!conv || conv.messages.length === 0) {
+        container.innerHTML = '';
+        container.appendChild(createEmptyState());
+        document.getElementById('convTitle').textContent = 'Claude Chat';
+        return;
+      }
+
+      document.getElementById('convTitle').textContent = conv.title;
+      container.innerHTML = conv.messages.map((m, i) => renderMessage(m, i, conv)).join('');
+      container.scrollTop = container.scrollHeight;
+
+      // Attach copy handlers
+      container.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const text = btn.dataset.text;
+          navigator.clipboard.writeText(text).then(() => showToast('已复制'));
+        });
+      });
+    }
+
+    function createEmptyState() {
+      const div = document.createElement('div');
+      div.className = 'empty-state';
+      div.id = 'emptyState';
+      div.innerHTML = '<div class="icon">🤖</div><h3>开始对话</h3><p>在下方输入你的问题，与 Claude 交流</p>';
+      return div;
+    }
+
+    function renderMessage(msg, idx, conv) {
+      const role = msg.role;
+      const content = typeof msg.content === 'string' ? msg.content : msg.content?.map(c => c.text || '').join(' ') || '';
+      const html = simpleMarkdown(content);
+      const time = formatTime(msg._ts || conv.updatedAt);
+      const isLastAssistant = role === 'assistant' && idx === conv.messages.length - 1;
+
+      return `
+        <div class="msg ${role}">
+          <div class="bubble">${html}</div>
+          <div class="msg-actions ${isLastAssistant ? 'show' : ''}">
+            <button class="copy-btn" data-text="${escapeAttr(content)}">复制</button>
+            ${role === 'assistant' && isLastAssistant ? '<button onclick="regenerate()">重新生成</button>' : ''}
+          </div>
+          <div class="msg-time">${time}</div>
+        </div>
+      `;
+    }
+
+    function escapeHTML(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+      return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Simple markdown → HTML (covers ~90% of chat use cases)
+    function simpleMarkdown(text) {
+      let html = escapeHTML(text);
+      // Code blocks (must come before inline code)
+      html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        const clean = code.replace(/^\n|\n$/g, '');
+        return `<pre><code>${clean}</code></pre>`;
+      });
+      // Inline code
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // Bold
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      // Italic
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      // Headers
+      html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+      html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+      // Unordered lists
+      html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+      html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+      // Blockquotes
+      html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+      // Links
+      html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      // Paragraphs (double newlines)
+      html = html.replace(/\n\n/g, '</p><p>');
+      html = '<p>' + html + '</p>';
+      // Clean up empty paragraphs
+      html = html.replace(/<p><\/p>/g, '');
+      // Remove wrapping p if it contains block elements
+      html = html.replace(/<p>(<(pre|ul|ol|blockquote|h[2-4])[\s\S]*?<\/\2>)<\/p>/g, '$1');
+      return html;
+    }
+
+    function addAssistantBubble() {
+      const container = document.getElementById('messages');
+      const es = document.getElementById('emptyState');
+      if (es) es.remove();
+
+      const div = document.createElement('div');
+      div.className = 'msg assistant';
+      div.id = 'streaming-msg';
+      div.innerHTML = `
+        <div class="bubble" id="streaming-bubble"><div class="typing"><span></span><span></span><span></span></div></div>
+      `;
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function updateStreamingBubble(text) {
+      const bubble = document.getElementById('streaming-bubble');
+      if (bubble) {
+        bubble.innerHTML = simpleMarkdown(text);
+        const container = document.getElementById('messages');
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function finalizeStreamingMessage(fullText) {
+      const msgDiv = document.getElementById('streaming-msg');
+      if (msgDiv) {
+        const bubble = msgDiv.querySelector('.bubble');
+        bubble.innerHTML = simpleMarkdown(fullText);
+        const actions = document.createElement('div');
+        actions.className = 'msg-actions show';
+        actions.innerHTML = `
+          <button class="copy-btn" data-text="${escapeAttr(fullText)}">复制</button>
+          <button onclick="regenerate()">重新生成</button>
+        `;
+        msgDiv.appendChild(actions);
+        const time = document.createElement('div');
+        time.className = 'msg-time';
+        time.textContent = formatTime(Date.now());
+        msgDiv.appendChild(time);
+
+        // Attach copy
+        msgDiv.querySelector('.copy-btn').addEventListener('click', () => {
+          navigator.clipboard.writeText(fullText).then(() => showToast('已复制'));
+        });
+
+        msgDiv.removeAttribute('id');
+      }
+    }
+
+    // ============ API ============
+    async function* streamAnthropic(messages, systemPrompt) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': state.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: state.model,
+          max_tokens: 8192,
+          system: systemPrompt || state.systemPrompt,
+          messages: messages,
+          stream: true,
+        }),
+        signal: state.abortController.signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 401) throw new Error('Anthropic API Key 无效');
+        if (response.status === 429) throw new Error('请求太频繁，请稍后再试');
+        throw new Error(err.error?.message || `API 错误 (${response.status})`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') return;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                yield parsed.delta.text;
+              } else if (parsed.type === 'message_stop') {
+                return;
+              }
+            } catch (e) { /* skip malformed lines */ }
+          }
+        }
+      }
+    }
+
+    async function* streamDeepSeek(messages, systemPrompt) {
+      // DeepSeek uses OpenAI-compatible format: system prompt goes in messages array
+      const dsMessages = [];
+      if (systemPrompt || state.systemPrompt) {
+        dsMessages.push({ role: 'system', content: systemPrompt || state.systemPrompt });
+      }
+      dsMessages.push(...messages);
+
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.deepseekKey}`,
+        },
+        body: JSON.stringify({
+          model: state.deepseekModel,
+          max_tokens: 8192,
+          messages: dsMessages,
+          stream: true,
+        }),
+        signal: state.abortController.signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        if (response.status === 401) throw new Error('DeepSeek API Key 无效');
+        if (response.status === 429) throw new Error('请求太频繁，请稍后再试');
+        throw new Error(err.error?.message || `API 错误 (${response.status})`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') return;
+            try {
+              const parsed = JSON.parse(data);
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                yield delta.content;
+              }
+            } catch (e) { /* skip malformed lines */ }
+          }
+        }
+      }
+    }
+
+    function streamResponse(messages, systemPrompt) {
+      if (state.provider === 'deepseek') {
+        return streamDeepSeek(messages, systemPrompt);
+      }
+      return streamAnthropic(messages, systemPrompt);
+    }
+
+    // ============ Actions ============
+    function handleSend() {
+      const input = document.getElementById('input');
+      const text = input.value.trim();
+      if (!text || state.isGenerating) return;
+
+      const hasKey = state.provider === 'deepseek' ? state.deepseekKey : state.apiKey;
+      if (!hasKey) {
+        openSettings();
+        showToast('请先设置 API Key');
+        return;
+      }
+
+      input.value = '';
+      input.style.height = 'auto';
+
+      // Create conversation if needed
+      if (!state.currentConvId || !state.conversations[state.currentConvId]) {
+        const id = genId();
+        state.conversations[id] = {
+          id, title: autoTitle([{ role: 'user', content: text }]),
+          messages: [], createdAt: Date.now(), updatedAt: Date.now(),
+        };
+        state.currentConvId = id;
+      }
+
+      renderConversations();
+      saveState();
+      sendMessageContent(text);
+    }
+
+    function handleStop() {
+      if (state.abortController) {
+        state.abortController.abort();
+      }
+    }
+
+    function handleSendOrStop() {
+      if (state.isGenerating) handleStop();
+      else handleSend();
+    }
+
+    function handleKeyDown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSendOrStop();
+      }
+    }
+
+    function startNewChat() {
+      state.currentConvId = null;
+      renderMessages();
+      renderConversations();
+      saveState();
+      document.getElementById('input').focus();
+    }
+
+    function switchConversation(id) {
+      state.currentConvId = id;
+      renderMessages();
+      renderConversations();
+      closeSidebar();
+      saveState();
+    }
+
+    function deleteConversation(id) {
+      if (!confirm('删除这个对话？')) return;
+      delete state.conversations[id];
+      if (state.currentConvId === id) {
+        state.currentConvId = null;
+        renderMessages();
+      }
+      renderConversations();
+      saveState();
+    }
+
+    function regenerate() {
+      const conv = state.conversations[state.currentConvId];
+      if (!conv || state.isGenerating) return;
+
+      // Remove last assistant message if present
+      const last = conv.messages[conv.messages.length - 1];
+      if (last && last.role === 'assistant') {
+        conv.messages.pop();
+      }
+
+      // Find the last user message and re-send
+      const lastUserMsg = [...conv.messages].reverse().find(m => m.role === 'user');
+      if (!lastUserMsg) return;
+
+      // Remove it from history (it'll be re-added in sendMessageContent)
+      conv.messages = conv.messages.filter(m => m !== lastUserMsg);
+      conv.updatedAt = Date.now();
+      saveState();
+      renderMessages();
+      sendMessageContent(lastUserMsg.content);
+    }
+
+    async function sendMessageContent(text) {
+      const hasKey = state.provider === 'deepseek' ? state.deepseekKey : state.apiKey;
+      if (!text || state.isGenerating || !hasKey) return;
+
+      const conv = state.conversations[state.currentConvId];
+      conv.messages.push({ role: 'user', content: text, _ts: Date.now() });
+      conv.title = autoTitle(conv.messages);
+      conv.updatedAt = Date.now();
+      renderMessages();
+      saveState();
+
+      state.isGenerating = true;
+      state.abortController = new AbortController();
+      const btn = document.getElementById('sendBtn');
+      btn.classList.add('stop');
+      btn.textContent = '■';
+      btn.disabled = true;
+
+      addAssistantBubble();
+      let fullResponse = '';
+
+      try {
+        const apiMessages = conv.messages.map(({ role, content }) => ({ role, content }));
+        for await (const chunk of streamResponse(apiMessages, state.systemPrompt)) {
+          fullResponse += chunk;
+          updateStreamingBubble(fullResponse);
+        }
+        finalizeStreamingMessage(fullResponse);
+        conv.messages.push({ role: 'assistant', content: fullResponse, _ts: Date.now() });
+        conv.updatedAt = Date.now();
+        renderConversations();
+        saveState();
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          if (fullResponse) {
+            finalizeStreamingMessage(fullResponse);
+            conv.messages.push({ role: 'assistant', content: fullResponse + ' [已停止]', _ts: Date.now() });
+          } else {
+            conv.messages.pop();
+          }
+        } else {
+          const streaming = document.getElementById('streaming-msg');
+          if (streaming) streaming.remove();
+          conv.messages.pop();
+          renderMessages();
+          const msg = err.message === 'Failed to fetch'
+            ? '网络连接失败，请检查网络后重试'
+            : err.message;
+          showToast(msg, 3000);
+        }
+        conv.updatedAt = Date.now();
+        renderConversations();
+        saveState();
+      }
+
+      state.isGenerating = false;
+      state.abortController = null;
+      btn.classList.remove('stop');
+      btn.textContent = '↑';
+      btn.disabled = false;
+      document.getElementById('input').focus();
+    }
+
+    // ============ Sidebar ============
+    function openSidebar() {
+      document.getElementById('sidebar').classList.add('open');
+      document.getElementById('overlay').classList.add('open');
+      renderConversations();
+    }
+
+    function closeSidebar() {
+      document.getElementById('sidebar').classList.remove('open');
+      document.getElementById('overlay').classList.remove('open');
+    }
+
+    document.getElementById('overlay').addEventListener('click', closeSidebar);
+
+    // ============ Settings ============
+    function switchProviderTab(provider) {
+      state.provider = provider;
+      document.querySelectorAll('.provider-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.provider === provider);
+      });
+      document.getElementById('anthropicFields').style.display = provider === 'anthropic' ? '' : 'none';
+      document.getElementById('deepseekFields').style.display = provider === 'deepseek' ? '' : 'none';
+    }
+
+    function openSettings() {
+      switchProviderTab(state.provider);
+      document.getElementById('apiKeyInput').value = state.apiKey;
+      document.getElementById('anthropicModelSelect').value = state.model;
+      document.getElementById('deepseekKeyInput').value = state.deepseekKey;
+      document.getElementById('deepseekModelSelect').value = state.deepseekModel;
+      document.getElementById('systemPromptInput').value = state.systemPrompt;
+      document.getElementById('settingsModal').classList.add('open');
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').classList.remove('open');
+    }
+
+    function saveSettings() {
+      state.provider = document.querySelector('.provider-tab.active')?.dataset?.provider || 'anthropic';
+      state.apiKey = document.getElementById('apiKeyInput').value.trim();
+      state.model = document.getElementById('anthropicModelSelect').value;
+      state.deepseekKey = document.getElementById('deepseekKeyInput').value.trim();
+      state.deepseekModel = document.getElementById('deepseekModelSelect').value;
+      const sp = document.getElementById('systemPromptInput').value.trim();
+      state.systemPrompt = sp || DEFAULT_SYSTEM;
+      saveState();
+      closeSettings();
+      showToast('设置已保存');
+
+      // Update header badge
+      updateProviderBadge();
+
+      // Focus input if key is set
+      const hasKey = state.provider === 'anthropic' ? state.apiKey : state.deepseekKey;
+      if (hasKey) document.getElementById('input').focus();
+    }
+
+    function updateProviderBadge() {
+      const badge = document.getElementById('providerBadge');
+      if (badge) badge.textContent = state.provider === 'deepseek' ? 'DS' : '';
+      if (badge) badge.style.display = state.provider === 'deepseek' ? '' : 'none';
+    }
+
+    // ============ Init ============
+    function init() {
+      loadState();
+
+      // Update provider badge
+      updateProviderBadge();
+
+      // Auto-resize textarea
+      const textarea = document.getElementById('input');
+      textarea.addEventListener('input', () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px';
+      });
+
+      // Render
+      renderMessages();
+      renderConversations();
+
+      // Focus input if API key is set
+      const hasKey = state.provider === 'deepseek' ? state.deepseekKey : state.apiKey;
+      if (hasKey && state.currentConvId) {
+        document.getElementById('input').focus();
+      }
+
+      // Register service worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
