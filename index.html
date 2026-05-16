@@ -428,12 +428,39 @@
       container.innerHTML = conv.messages.map((m, i) => renderMessage(m, i, conv)).join('');
       container.scrollTop = container.scrollHeight;
 
-      // Attach copy handlers
-      container.querySelectorAll('.copy-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const text = btn.dataset.text;
-          navigator.clipboard.writeText(text).then(() => showToast('已复制'));
+      // Event delegation for message actions and long press
+      container.querySelectorAll('.msg').forEach(msgEl => {
+        const idx = parseInt(msgEl.dataset.msgIdx);
+        const role = msgEl.dataset.role;
+
+        // Click delegation for buttons
+        msgEl.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (btn.classList.contains('copy-btn')) {
+              navigator.clipboard.writeText(btn.dataset.text).then(() => showToast('已复制'));
+            } else if (btn.classList.contains('share-btn')) {
+              shareMessage(btn.dataset.text);
+            } else if (btn.classList.contains('regen-btn')) {
+              regenerate();
+            }
+          });
         });
+
+        // Long press on user messages to edit
+        if (role === 'user') {
+          let pressTimer;
+          const bubble = msgEl.querySelector('.bubble');
+          bubble.addEventListener('touchstart', () => {
+            pressTimer = setTimeout(() => editMessageFrom(idx), 500);
+          });
+          bubble.addEventListener('touchend', () => clearTimeout(pressTimer));
+          bubble.addEventListener('touchmove', () => clearTimeout(pressTimer));
+          bubble.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            editMessageFrom(idx);
+          });
+        }
       });
     }
 
@@ -453,11 +480,12 @@
       const isLastAssistant = role === 'assistant' && idx === conv.messages.length - 1;
 
       return `
-        <div class="msg ${role}">
+        <div class="msg ${role}" data-msg-idx="${idx}" data-role="${role}" data-content="${escapeAttr(content)}">
           <div class="bubble">${html}</div>
           <div class="msg-actions ${isLastAssistant ? 'show' : ''}">
             <button class="copy-btn" data-text="${escapeAttr(content)}">复制</button>
-            ${role === 'assistant' && isLastAssistant ? '<button onclick="regenerate()">重新生成</button>' : ''}
+            <button class="share-btn" data-text="${escapeAttr(content)}">分享</button>
+            ${role === 'assistant' && isLastAssistant ? '<button class="regen-btn">重新生成</button>' : ''}
           </div>
           <div class="msg-time">${time}</div>
         </div>
@@ -542,18 +570,24 @@
         actions.className = 'msg-actions show';
         actions.innerHTML = `
           <button class="copy-btn" data-text="${escapeAttr(fullText)}">复制</button>
-          <button onclick="regenerate()">重新生成</button>
+          <button class="share-btn" data-text="${escapeAttr(fullText)}">分享</button>
+          <button class="regen-btn">重新生成</button>
         `;
+        // Attach event handlers
+        actions.querySelector('.copy-btn').addEventListener('click', () => {
+          navigator.clipboard.writeText(fullText).then(() => showToast('已复制'));
+        });
+        actions.querySelector('.share-btn').addEventListener('click', () => {
+          shareMessage(fullText);
+        });
+        actions.querySelector('.regen-btn').addEventListener('click', () => {
+          regenerate();
+        });
         msgDiv.appendChild(actions);
         const time = document.createElement('div');
         time.className = 'msg-time';
         time.textContent = formatTime(Date.now());
         msgDiv.appendChild(time);
-
-        // Attach copy
-        msgDiv.querySelector('.copy-btn').addEventListener('click', () => {
-          navigator.clipboard.writeText(fullText).then(() => showToast('已复制'));
-        });
 
         msgDiv.removeAttribute('id');
       }
@@ -775,6 +809,46 @@
       saveState();
       renderMessages();
       sendMessageContent(lastUserMsg.content);
+    }
+
+    async function shareMessage(text) {
+      // Try Web Share API (mobile native share sheet)
+      if (navigator.share) {
+        try {
+          await navigator.share({ text });
+          return;
+        } catch (e) { /* user cancelled, fallthrough */ }
+      }
+      // Fallback to clipboard
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('已复制到剪贴板');
+      } catch (e) {
+        showToast('分享失败，请手动复制');
+      }
+    }
+
+    function editMessageFrom(idx) {
+      const conv = state.conversations[state.currentConvId];
+      if (!conv || state.isGenerating) return;
+      const msg = conv.messages[idx];
+      if (!msg || msg.role !== 'user') return;
+
+      // Remove this message and all subsequent messages
+      conv.messages = conv.messages.slice(0, idx);
+      conv.updatedAt = Date.now();
+
+      // Put text back in input
+      const input = document.getElementById('input');
+      input.value = msg.content;
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+      input.focus();
+
+      renderMessages();
+      renderConversations();
+      saveState();
+      showToast('已编辑，修改后重新发送');
     }
 
     async function sendMessageContent(text) {
